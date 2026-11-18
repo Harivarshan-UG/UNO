@@ -9,12 +9,12 @@ services:
     runtime: node
     plan: free
     # Install only production deps (skips partykit's workerd download, etc.).
-    # We wipe node_modules first because Render's build cache restores the
-    # previous deploy's tree, and npm chokes on it when package.json has
-    # drifted (the "Cannot read properties of null (reading 'edgesOut')"
-    # bug). `npm install` (not `npm ci`) also sidesteps OS-drift in the
-    # lockfile.
-    buildCommand: rm -rf node_modules && npm install --omit=dev --no-audit --no-fund
+    # Nuclear install: wipe node_modules AND npm's cacache, then install with
+    # --legacy-peer-deps. The "Cannot read properties of null (reading
+    # 'edgesOut')" bug comes from a corrupt cached dep graph that survives a
+    # plain `rm -rf node_modules`. Clearing ~/.npm/_cacache forces fresh
+    # tarball fetches and rebuilds the graph from scratch.
+    buildCommand: rm -rf node_modules && npm cache clean --force && npm install --omit=dev --no-audit --no-fund --legacy-peer-deps
     startCommand: npm run start:server
     # Our server answers plain HTTP GETs with 200, so this doubles as a health check.
     healthCheckPath: /
