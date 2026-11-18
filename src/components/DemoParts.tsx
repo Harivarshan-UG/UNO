@@ -62,11 +62,14 @@ function view(over: Partial<ClientView>): ClientView {
     currentSeat: 0,
     pendingDraw: 0,
     pendingPass: null,
+    pendingSevenSwap: null,
+    flipSide: "light",
     turnEndsAt: null,
     scores: { p1: 210, p2: 130, p3: 90 },
     roundWinnerId: null,
     matchWinnerId: null,
     lastActionLog: [],
+    chatLog: [],
     ...over,
   };
 }
