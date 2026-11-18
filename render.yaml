@@ -9,11 +9,12 @@ services:
     runtime: node
     plan: free
     # Install only production deps (skips partykit's workerd download, etc.).
-    # Using `npm install` (not `npm ci`) because the lockfile was generated on
-    # a different OS / npm version than Render's Linux builder, which can leave
-    # platform-specific optional deps like esbuild's native binaries out of the
-    # lockfile. `install` reconciles instead of refusing.
-    buildCommand: npm install --omit=dev --no-audit --no-fund
+    # We wipe node_modules first because Render's build cache restores the
+    # previous deploy's tree, and npm chokes on it when package.json has
+    # drifted (the "Cannot read properties of null (reading 'edgesOut')"
+    # bug). `npm install` (not `npm ci`) also sidesteps OS-drift in the
+    # lockfile.
+    buildCommand: rm -rf node_modules && npm install --omit=dev --no-audit --no-fund
     startCommand: npm run start:server
     # Our server answers plain HTTP GETs with 200, so this doubles as a health check.
     healthCheckPath: /
