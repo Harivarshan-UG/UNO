@@ -6,13 +6,14 @@ import { useGameSounds } from "../hooks/useGameSounds";
 import { useIsPhone } from "../hooks/useIsPhone";
 import { Card } from "./ui/Card";
 import { Spinner } from "./ui/Spinner";
-import { setName } from "../lib/identity";
+import { setAvatarId, setName } from "../lib/identity";
 import { useGameStore } from "../store/gameStore";
 import { GameTable } from "./GameTable";
 import { MobileGameTable } from "./MobileGameTable";
 import { Lobby } from "./Lobby";
 import { NameGate } from "./NameGate";
 import { RoundEnd } from "./RoundEnd";
+import { RuleBook } from "./RuleBook";
 import { SevenSwapPicker } from "./SevenSwapPicker";
 import { Toasts } from "./Toasts";
 
@@ -55,9 +56,10 @@ export function RoomClient({ code }: { code: string }) {
     return (
       <NameGate
         code={code}
-        onSubmit={(name) => {
+        onSubmit={(name, avatarId) => {
           setName(code, name);
-          submitName(name);
+          setAvatarId(code, avatarId);
+          submitName(name, avatarId);
         }}
       />
     );
@@ -137,7 +139,10 @@ export function RoomClient({ code }: { code: string }) {
       {/* Mounted at RoomClient so one overlay serves both the desktop and mobile
           tables (the picker is additive to the frozen desktop board). */}
       {view.phase === "in_round" && (
-        <SevenSwapPicker view={view} send={send} />
+        <>
+          <SevenSwapPicker view={view} send={send} />
+          <RuleBook view={view} />
+        </>
       )}
       <Toasts />
     </>

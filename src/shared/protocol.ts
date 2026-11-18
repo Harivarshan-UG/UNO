@@ -33,6 +33,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("joinRoom"),
     playerId: z.string().min(1),
     displayName: z.string().min(1).max(20),
+    avatarId: z.number().int().min(0).max(7).optional(),
     config: ruleConfigSchema.optional(), // only honored by the room creator
   }),
   z.object({ type: z.literal("rejoin"), playerId: z.string().min(1) }),

@@ -167,7 +167,7 @@ function handle(room: Room, ws: WebSocket, msg: ClientMessage) {
       if (state.players.length === 0 && msg.config) {
         state.config = msg.config;
       }
-      const r = addPlayer(state, msg.playerId, msg.displayName);
+      const r = addPlayer(state, msg.playerId, msg.displayName, msg.avatarId);
       if (!r.ok) return reject(ws, r.reason);
       bind(room, ws, msg.playerId);
       send(ws, { type: "joined", playerId: msg.playerId });

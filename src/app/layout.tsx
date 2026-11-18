@@ -6,6 +6,7 @@ import { ClickSpark } from "../components/ClickSpark";
 import { CursorTrail } from "../components/CursorTrail";
 import { RotatePrompt } from "../components/MobileGate";
 import { MuteToggle } from "../components/MuteToggle";
+import { ThemeMount } from "../components/ThemeMount";
 import { SensoryUIProvider } from "@/lib/provider";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ export default function RootLayout({
             },
           }}
         >
+          <ThemeMount />
           <Splash>{children}</Splash>
           <ClickSpark />
           <CursorTrail />

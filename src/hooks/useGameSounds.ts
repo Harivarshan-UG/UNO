@@ -47,6 +47,18 @@ export function useGameSounds(view: ClientView | null): void {
       return;
     }
 
+    // --- Flip variant: the side flipped ------------------------------------
+    if (prev.flipSide !== view.flipSide) {
+      void playSound("overlay.expand");
+      return;
+    }
+
+    // --- 7-swap: someone (not me) just played a 7 that opened a swap prompt
+    if (!prev.pendingSevenSwap && view.pendingSevenSwap) {
+      void playSound("notification.warning");
+      return;
+    }
+
     // --- A new card hit the discard pile ----------------------------------
     const discardChanged =
       view.discardTop != null &&
@@ -79,10 +91,16 @@ function specialRole(value: Value): SoundRole | null {
     case "reverse":
       return "navigation.backward";
     case "skip":
+    case "skip_all":
       return "navigation.tab";
     case "draw2":
+    case "draw5":
     case "wild_draw4":
       return "notification.warning";
+    case "wild":
+      return "overlay.open";
+    case "flip":
+      return "overlay.expand";
     default:
       return null;
   }

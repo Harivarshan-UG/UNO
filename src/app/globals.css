@@ -1146,3 +1146,85 @@ textarea,
     @apply font-sans;
   }
 }
+/* ----------------------------------------------------------------------------
+ * THEMES
+ *
+ * Opt-in via a class on <html> (set by useTheme in src/hooks/useTheme.ts and
+ * persisted to localStorage). Each theme overrides the --color-uno-* tokens
+ * that Tailwind v4's @theme block maps `bg-uno-*` / `text-uno-*` to — so EVERY
+ * existing uno-* utility picks up the new palette with zero component edits.
+ *
+ * Theme flavours:
+ *   (default)      — "Groovy" cream + inked text (what the app was built on).
+ *   theme-dark     — ink surfaces, cream text, muted suits.
+ *   theme-neon     — near-black backdrop, electric suit colours, scanline glow.
+ *   theme-glass    — translucent cool palette with heavier blurs; same ink text.
+ * ------------------------------------------------------------------------- */
+
+html.theme-dark {
+  --color-uno-cream: #1a1816;
+  --color-uno-white1: #242120;
+  --color-uno-white2: #2e2a28;
+  --color-uno-ink: #f2ead9;
+  --color-uno-ink1: #c8c1b2;
+  --color-uno-ink2: #928b7f;
+  --color-uno-red: #ff7046;
+  --color-uno-yellow: #f3c558;
+  --color-uno-green: #a5c470;
+  --color-uno-blue: #4aa0db;
+  color-scheme: dark;
+}
+html.theme-dark body {
+  background-color: var(--color-uno-cream);
+  color: var(--color-uno-ink);
+}
+
+html.theme-neon {
+  --color-uno-cream: #0a0612;
+  --color-uno-white1: #16102a;
+  --color-uno-white2: #221a3c;
+  --color-uno-ink: #f6f3ff;
+  --color-uno-ink1: #d4caff;
+  --color-uno-ink2: #a497d9;
+  --color-uno-red: #ff2bd0;
+  --color-uno-yellow: #ffe03a;
+  --color-uno-green: #1fffb3;
+  --color-uno-blue: #35d8ff;
+  color-scheme: dark;
+}
+html.theme-neon body {
+  background: radial-gradient(
+      ellipse at top,
+      rgba(53, 216, 255, 0.18) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at bottom right,
+      rgba(255, 43, 208, 0.15) 0%,
+      transparent 60%
+    ),
+    var(--color-uno-cream);
+  color: var(--color-uno-ink);
+}
+
+html.theme-glass {
+  --color-uno-cream: #e7eef5;
+  --color-uno-white1: rgba(255, 255, 255, 0.55);
+  --color-uno-white2: rgba(255, 255, 255, 0.38);
+  --color-uno-ink: #0f2337;
+  --color-uno-ink1: #2b4866;
+  --color-uno-ink2: #5c7891;
+  --color-uno-red: #ff4f67;
+  --color-uno-yellow: #ffcf4d;
+  --color-uno-green: #4ad28a;
+  --color-uno-blue: #4a8fff;
+}
+html.theme-glass body {
+  background: linear-gradient(
+    135deg,
+    #9cc6f6 0%,
+    #d7b3ff 50%,
+    #ffc0a6 100%
+  );
+  color: var(--color-uno-ink);
+}

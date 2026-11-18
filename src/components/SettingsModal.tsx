@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useSensoryUI } from "../lib/provider";
+import { Theme, THEMES, useTheme } from "../hooks/useTheme";
 
 /**
  * Audio + accessibility settings overlay. Opened from the speaker toggle. Keeps
@@ -17,6 +18,7 @@ export function SettingsModal({
   onClose: () => void;
 }) {
   const { muted, setMuted, volume, setVolume, reducedMotion } = useSensoryUI();
+  const [theme, setTheme] = useTheme();
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +100,20 @@ export function SettingsModal({
             </div>
           </section>
 
+          <section className="pt-3 border-t border-uno-ink/10">
+            <p className="font-semibold text-uno-ink mb-2">Theme</p>
+            <div className="grid grid-cols-2 gap-2">
+              {THEMES.map((t) => (
+                <ThemeTile
+                  key={t}
+                  theme={t}
+                  selected={theme === t}
+                  onPick={() => setTheme(t)}
+                />
+              ))}
+            </div>
+          </section>
+
           <section className="pt-3 border-t border-uno-ink/10 text-xs text-uno-ink2 leading-relaxed">
             <p className="font-semibold text-uno-ink mb-1">Motion</p>
             {reducedMotion ? (
@@ -119,6 +135,43 @@ export function SettingsModal({
         </footer>
       </div>
     </div>
+  );
+}
+
+const THEME_META: Record<Theme, { label: string; swatch: string }> = {
+  groovy: { label: "Groovy", swatch: "linear-gradient(135deg,#f1e7dc,#f85c1e 50%,#177dc6)" },
+  dark: { label: "Dark", swatch: "linear-gradient(135deg,#1a1816,#ff7046 50%,#4aa0db)" },
+  neon: { label: "Neon", swatch: "linear-gradient(135deg,#0a0612,#ff2bd0 50%,#35d8ff)" },
+  glass: { label: "Glass", swatch: "linear-gradient(135deg,#9cc6f6,#d7b3ff 50%,#ffc0a6)" },
+};
+
+function ThemeTile({
+  theme,
+  selected,
+  onPick,
+}: {
+  theme: Theme;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  const meta = THEME_META[theme];
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={selected}
+      className={`flex items-center gap-2 px-2.5 py-2 rounded-card border-2 transition ${
+        selected
+          ? "border-uno-red bg-uno-white1"
+          : "border-uno-ink/10 bg-uno-white1 hover:border-uno-ink/30"
+      }`}
+    >
+      <span
+        className="w-6 h-6 rounded-full border-2 border-uno-ink/15 shrink-0"
+        style={{ background: meta.swatch }}
+      />
+      <span className="font-bold text-sm text-uno-ink">{meta.label}</span>
+    </button>
   );
 }
 

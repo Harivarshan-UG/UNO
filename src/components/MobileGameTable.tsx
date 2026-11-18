@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Card, ClientView, Color } from "../engine/types";
 import { canPlay, canStackRank, isWild } from "../engine/rules";
 import type { ClientMessage } from "../shared/protocol";
-import { avatarFor } from "../lib/avatars";
+import { Avatar, defaultAvatarId } from "./Avatar";
 import { usePlaySound } from "../hooks/use-play-sound";
 import { CardBack, CardFace, swatch } from "./Card";
 import { CatchAlert, CatchPill, catchableOpponent } from "./CatchCall";
@@ -422,8 +422,13 @@ export function MobileGameTable({
 
       {/* Bottom hand tray. Its children (action bar, UNO) anchor to the tray's
           top edge via `bottom-full`, so they sit just above the cards on every
-          screen height instead of guessing a vh offset. */}
-      <div className="absolute bottom-0 left-0 right-0">
+          screen height instead of guessing a vh offset.
+
+          z-40 on the wrapper establishes a fresh stacking context so the Play /
+          UNO / Catch pills always paint above opponent seats and the centre
+          pile — on short phones those zones can otherwise bleed into the same
+          strip and swallow the action bar. */}
+      <div className="absolute bottom-0 left-0 right-0 z-40">
         {/* Contextual actions, floating just above the tray: Play/Cancel
             (stacking selection) or Pass (after a draw). */}
         {(selected.length > 0 || canPass) && (
@@ -504,7 +509,7 @@ export function MobileGameTable({
               pill peeked out below the fan. `pointer-events-none` keeps every
               card underneath it tappable. */}
           <div className="absolute left-1/2 bottom-2 z-20 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
-            <MyAvatar seat={mySeat} glow={isMyTurn} turnEndsAt={isMyTurn ? view.turnEndsAt : null} />
+            <MyAvatar seat={mySeat} avatarId={me?.avatarId} glow={isMyTurn} turnEndsAt={isMyTurn ? view.turnEndsAt : null} />
             <span className="px-3 py-0.5 rounded-[10px] bg-uno-ink text-uno-cream text-[12px] font-extrabold leading-none shadow-[0_2px_5px_rgba(43,42,39,0.3)]">
               You
             </span>
@@ -539,33 +544,26 @@ export function MobileGameTable({
 
 function MyAvatar({
   seat,
+  avatarId,
   glow,
   turnEndsAt,
 }: {
   seat: number;
+  avatarId?: number;
   glow: boolean;
   turnEndsAt?: number | null;
 }) {
   const size = 48;
+  const id = avatarId ?? defaultAvatarId(seat);
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <div
         style={{ width: size, height: size }}
-        className={`shrink-0 rounded-[10px] card-shadow overflow-hidden ${glow ? "turn-glow" : ""}`}
+        className={`shrink-0 rounded-full card-shadow overflow-hidden ${glow ? "turn-glow" : ""}`}
       >
-        <Img
-          src={avatarFor(seat)}
-          alt=""
-          width={size}
-          height={size}
-          rounded={false}
-          unoptimized
-          draggable={false}
-          style={{ width: "100%", height: "100%" }}
-          className="object-cover pointer-events-none rounded-[10px]"
-        />
+        <Avatar id={id} size={size} />
       </div>
-      {glow && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={10} />}
+      {glow && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={size / 2} />}
     </div>
   );
 }
@@ -853,21 +851,11 @@ function MobileSeat({
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <div
         style={{ width: size, height: size }}
-        className={`rounded-[10px] overflow-hidden card-shadow ${isCurrent ? "turn-glow" : ""}`}
+        className={`rounded-full overflow-hidden card-shadow ${isCurrent ? "turn-glow" : ""}`}
       >
-        <Img
-          src={avatarFor(player.seat)}
-          alt=""
-          width={size}
-          height={size}
-          rounded={false}
-          unoptimized
-          draggable={false}
-          style={{ width: "100%", height: "100%" }}
-          className="object-cover pointer-events-none rounded-[10px]"
-        />
+        <Avatar id={player.avatarId ?? defaultAvatarId(player.seat)} size={size} />
       </div>
-      {isCurrent && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={10} />}
+      {isCurrent && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={size / 2} />}
       {!player.connected && (
         <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-uno-cream rounded-full border border-uno-ink/15" title="disconnected" />
       )}
@@ -1245,21 +1233,11 @@ function CompactTopSeat({
       <div className="relative" style={{ width: size, height: size }}>
         <div
           style={{ width: size, height: size }}
-          className={`rounded-[10px] overflow-hidden card-shadow ${isCurrent ? "turn-glow" : ""}`}
+          className={`rounded-full overflow-hidden card-shadow ${isCurrent ? "turn-glow" : ""}`}
         >
-          <Img
-            src={avatarFor(player.seat)}
-            alt=""
-            width={size}
-            height={size}
-            rounded={false}
-            unoptimized
-            draggable={false}
-            style={{ width: "100%", height: "100%" }}
-            className="object-cover pointer-events-none rounded-[10px]"
-          />
+          <Avatar id={player.avatarId ?? defaultAvatarId(player.seat)} size={size} />
         </div>
-        {isCurrent && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={10} />}
+        {isCurrent && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={size / 2} />}
         {/* Hand-count badge, bottom-right. */}
         <span className="absolute -bottom-1 -right-1 grid place-items-center min-w-[18px] h-[18px] px-1 rounded-[7px] bg-uno-cream text-uno-ink text-[10px] font-extrabold border-2 border-uno-ink/12 shadow-[0_2px_4px_rgba(43,42,39,0.3)]">
           {player.handCount}

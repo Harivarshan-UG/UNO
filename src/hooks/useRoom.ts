@@ -6,7 +6,13 @@ import { useGameStore } from "../store/gameStore";
 import { useSensoryUI } from "../lib/provider";
 import type { RuleConfig } from "../engine/types";
 import type { ClientMessage, ServerMessage } from "../shared/protocol";
-import { clearCreate, getName, getOrCreatePlayerId, peekCreate } from "./../lib/identity";
+import {
+  clearCreate,
+  getAvatarId,
+  getName,
+  getOrCreatePlayerId,
+  peekCreate,
+} from "./../lib/identity";
 
 const PARTY_HOST =
   process.env.NEXT_PUBLIC_PARTYKIT_HOST || "127.0.0.1:1999";
@@ -49,8 +55,8 @@ export type RoomStatus = {
 
 type Intent =
   | { kind: "waiting" }
-  | { kind: "host"; displayName: string; config: RuleConfig }
-  | { kind: "player"; displayName: string };
+  | { kind: "host"; displayName: string; avatarId?: number; config: RuleConfig }
+  | { kind: "player"; displayName: string; avatarId?: number };
 
 /**
  * Connects to a room's game server, establishes identity (rejoin first, falling
@@ -92,10 +98,16 @@ export function useRoom(code: string) {
         type: "joinRoom",
         playerId,
         displayName: intent.displayName,
+        avatarId: intent.avatarId,
         config: intent.config,
       });
     } else {
-      send({ type: "joinRoom", playerId, displayName: intent.displayName });
+      send({
+        type: "joinRoom",
+        playerId,
+        displayName: intent.displayName,
+        avatarId: intent.avatarId,
+      });
     }
   }, [send]);
 
@@ -107,10 +119,11 @@ export function useRoom(code: string) {
     // managed to join (a cold backend), so they're cleared only once we're in.
     const create = peekCreate(code);
     const stored = getName(code);
+    const avatar = getAvatarId(code) ?? undefined;
     if (stored) {
       intentRef.current = create
-        ? { kind: "host", displayName: stored, config: create.config }
-        : { kind: "player", displayName: stored };
+        ? { kind: "host", displayName: stored, avatarId: avatar, config: create.config }
+        : { kind: "player", displayName: stored, avatarId: avatar };
     } else {
       setNeedsName(true);
     }
@@ -226,12 +239,12 @@ export function useRoom(code: string) {
 
   // Called by the name-gate form for players joining via a shared link.
   const submitName = useCallback(
-    (displayName: string) => {
+    (displayName: string, avatarId?: number) => {
       setNeedsName(false);
       const create = peekCreate(code);
       intentRef.current = create
-        ? { kind: "host", displayName, config: create.config }
-        : { kind: "player", displayName };
+        ? { kind: "host", displayName, avatarId, config: create.config }
+        : { kind: "player", displayName, avatarId };
       attemptJoin();
     },
     [code, attemptJoin],

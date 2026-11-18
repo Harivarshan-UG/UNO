@@ -97,6 +97,8 @@ export interface Player {
   hand: Card[]; // private — never sent to other clients
   hasCalledUno: boolean;
   connected: boolean;
+  /** Avatar id (0-7) the player picked on the NameGate; falls back to seat. */
+  avatarId?: number;
 }
 
 export interface ActionLogEntry {
@@ -179,6 +181,7 @@ export interface ClientView {
     hasCalledUno: boolean;
     connected: boolean;
     isCatchable: boolean;
+    avatarId?: number;
   }[];
   yourHand: Card[];
   drawPileCount: number;

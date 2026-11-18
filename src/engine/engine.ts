@@ -81,11 +81,19 @@ export function addPlayer(
   state: RoomState,
   playerId: string,
   displayName: string,
+  avatarId?: number,
 ): Result {
   if (state.phase !== "lobby") return fail("Game already started");
   const cap = Math.min(Math.max(state.config.maxPlayers ?? 10, 2), 10);
   if (state.players.length >= cap) return fail("Room is full");
-  if (state.players.some((p) => p.playerId === playerId)) return ok;
+  if (state.players.some((p) => p.playerId === playerId)) {
+    // Returning player — let them refresh their avatar pick.
+    if (typeof avatarId === "number") {
+      const p = state.players.find((x) => x.playerId === playerId)!;
+      p.avatarId = clampAvatar(avatarId);
+    }
+    return ok;
+  }
 
   const seat = state.players.length;
   state.players.push({
@@ -95,6 +103,7 @@ export function addPlayer(
     hand: [],
     hasCalledUno: false,
     connected: true,
+    avatarId: typeof avatarId === "number" ? clampAvatar(avatarId) : undefined,
   });
   state.scores[playerId] ??= 0;
   if (!state.hostPlayerId) state.hostPlayerId = playerId;
@@ -201,6 +210,9 @@ function applyOpeningCardEffect(state: RoomState, first: Card) {
 // ---------------------------------------------------------------------------
 
 const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+/** Keep avatar ids inside the 0..7 range the client renders. */
+const clampAvatar = (id: number) => Math.max(0, Math.min(7, Math.floor(id)));
 
 function seatPlayer(state: RoomState, seat: number): Player | undefined {
   return state.players.find((p) => p.seat === seat);
@@ -746,6 +758,7 @@ export function getClientView(state: RoomState, playerId: string): ClientView {
         state.unoVulnerableSeat === p.seat &&
         p.hand.length === 1 &&
         !p.hasCalledUno,
+      avatarId: p.avatarId,
     })),
     yourHand: me ? me.hand : [],
     drawPileCount: state.drawPile.length,

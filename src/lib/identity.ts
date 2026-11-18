@@ -26,6 +26,23 @@ export function setName(code: string, name: string) {
   localStorage.setItem(nameKey(code), name);
 }
 
+// Avatar choice — per-room and persistent, like the name. Nullable because
+// older saved identities won't have one; callers should fall back to a
+// seat-derived default.
+const avatarKey = (code: string) => `uno:avatar:${code}`;
+
+export function getAvatarId(code: string): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(avatarKey(code));
+  if (raw === null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function setAvatarId(code: string, id: number) {
+  localStorage.setItem(avatarKey(code), String(id));
+}
+
 export interface CreatePayload {
   config: RuleConfig;
 }
