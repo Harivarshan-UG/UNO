@@ -6,6 +6,7 @@ import type { ClientMessage } from "../shared/protocol";
 import { usePlaySound } from "../hooks/use-play-sound";
 import { Card as Img } from "./ui/Card";
 import { RoomQr } from "./RoomQr";
+import { ChatPanel } from "./ChatPanel";
 
 export function Lobby({
   view,
@@ -68,6 +69,8 @@ export function Lobby({
       <div className="w-full max-w-md bg-uno-cream/80 backdrop-blur-2xl rounded-[28px] border-2 border-white/50 shadow-[0_20px_60px_rgba(43,42,39,0.25)] p-5 sm:p-6">
         {/* Code and QR are one target: both say "this is how you get people in",
             so making them separately clickable would only add a decision. */}
+        <PresetBadge preset={view.config.preset} />
+
         <button
           onClick={copy}
           onAnimationEnd={() => setPressing(false)}
@@ -127,7 +130,12 @@ export function Lobby({
               )}
             </div>
           ))}
-          {Array.from({ length: 4 - view.players.length }).map((_, i) => (
+          {Array.from({
+            length: Math.max(
+              0,
+              (view.config.maxPlayers ?? 10) - view.players.length,
+            ),
+          }).map((_, i) => (
             <div
               key={i}
               className="bg-uno-cream/60 border-2 border-dashed border-uno-ink/15 rounded-card px-4 py-3 text-uno-ink2"
@@ -153,7 +161,38 @@ export function Lobby({
             Waiting for host to start
           </div>
         )}
+
+        <div className="mt-4">
+          <ChatPanel view={view} send={send} />
+        </div>
       </div>
     </main>
+  );
+}
+
+const PRESET_LABEL: Record<string, string> = {
+  classic: "Classic",
+  no_mercy: "No Mercy",
+  flip: "Flip",
+  custom: "Custom",
+};
+const PRESET_HUE: Record<string, string> = {
+  classic: "bg-uno-blue",
+  no_mercy: "bg-uno-red",
+  flip: "bg-uno-green",
+  custom: "bg-uno-ink",
+};
+
+function PresetBadge({ preset }: { preset: string }) {
+  const label = PRESET_LABEL[preset] ?? "Custom";
+  const hue = PRESET_HUE[preset] ?? "bg-uno-ink";
+  return (
+    <div className="flex justify-center mb-3">
+      <span
+        className={`${hue} text-uno-cream font-extrabold uppercase tracking-wider text-[11px] px-3 py-1 rounded-full border-2 border-uno-ink/15 shadow-[0_3px_0_rgba(43,42,39,0.22)]`}
+      >
+        {label}
+      </span>
+    </div>
   );
 }

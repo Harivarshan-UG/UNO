@@ -13,6 +13,7 @@ import { MobileGameTable } from "./MobileGameTable";
 import { Lobby } from "./Lobby";
 import { NameGate } from "./NameGate";
 import { RoundEnd } from "./RoundEnd";
+import { SevenSwapPicker } from "./SevenSwapPicker";
 import { Toasts } from "./Toasts";
 
 /**
@@ -132,6 +133,11 @@ export function RoomClient({ code }: { code: string }) {
       )}
       {(shownPhase === "round_end" || shownPhase === "match_end") && (
         <RoundEnd view={view} send={send} />
+      )}
+      {/* Mounted at RoomClient so one overlay serves both the desktop and mobile
+          tables (the picker is additive to the frozen desktop board). */}
+      {view.phase === "in_round" && (
+        <SevenSwapPicker view={view} send={send} />
       )}
       <Toasts />
     </>

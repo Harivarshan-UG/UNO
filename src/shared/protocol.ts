@@ -5,6 +5,8 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 export const ruleConfigSchema = z.object({
+  preset: z.enum(["classic", "no_mercy", "flip", "custom"]).default("classic"),
+  maxPlayers: z.number().int().min(2).max(10).default(10),
   unoCall: z.boolean(),
   unoPenalty: z.number().int().min(1).max(10),
   stackDraw2OnDraw2: z.boolean(),
@@ -15,6 +17,9 @@ export const ruleConfigSchema = z.object({
   dealSize: z.number().int().min(3).max(10),
   scoringMode: z.enum(["singleRound", "targetScore"]),
   targetScore: z.number().int().min(100).max(2000),
+  sevenSwap: z.boolean().default(false),
+  zeroRotate: z.boolean().default(false),
+  flipMode: z.boolean().default(false),
 });
 
 const colorSchema = z.enum(["red", "yellow", "green", "blue"]);
@@ -47,8 +52,13 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("passAfterDraw") }),
   z.object({ type: z.literal("callUno") }),
   z.object({ type: z.literal("catchMissedUno"), targetPlayerId: z.string() }),
+  z.object({
+    type: z.literal("chooseSevenSwapTarget"),
+    targetSeat: z.number().int().min(0).max(9),
+  }),
   z.object({ type: z.literal("startNextRound") }),
   z.object({ type: z.literal("leaveRoom") }),
+  z.object({ type: z.literal("chat"), text: z.string().min(1).max(200) }),
 ]);
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;

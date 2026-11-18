@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildDeck, cardPoints } from "./deck";
+import { buildDeck, buildFlipDeck, cardPoints } from "./deck";
 import { canPlay, canContinueStack } from "./rules";
 import {
   addPlayer,
   autoPass,
+  chooseSevenSwapTarget,
   createRoom,
   drawCard,
   playCard,
   playCards,
   startRound,
 } from "./engine";
+import { CLASSIC, NO_MERCY, FLIP, presetConfig } from "./presets";
 import { Card, DEFAULT_CONFIG, RoomState, RuleConfig } from "./types";
 
 function room(config: Partial<RuleConfig> = {}): RoomState {
@@ -277,5 +279,213 @@ describe("turn timeout (autoPass)", () => {
     expect(s.players[1].hand.length).toBe(before + 2);
     expect(s.pendingDraw).toBe(0);
     expect(s.currentSeat).toBe(0);
+  });
+});
+
+describe("maxPlayers", () => {
+  it("defaults to 10 and accepts up to that many", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG });
+    for (let i = 0; i < 10; i++) {
+      const r = addPlayer(s, `p${i}`, `P${i}`);
+      expect(r.ok).toBe(true);
+    }
+    const overflow = addPlayer(s, "p10", "P10");
+    expect(overflow.ok).toBe(false);
+  });
+
+  it("honors a host-lowered cap", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG, maxPlayers: 3 });
+    addPlayer(s, "p1", "A");
+    addPlayer(s, "p2", "B");
+    addPlayer(s, "p3", "C");
+    const overflow = addPlayer(s, "p4", "D");
+    expect(overflow.ok).toBe(false);
+  });
+
+  it("clamps absurd cap values to 10", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG, maxPlayers: 99 });
+    for (let i = 0; i < 10; i++) addPlayer(s, `p${i}`, `P${i}`);
+    expect(addPlayer(s, "p10", "P10").ok).toBe(false);
+  });
+});
+
+describe("7-swap rule", () => {
+  it("sets pendingSevenSwap when a 7 is played and swap is on", () => {
+    const s = room({ sevenSwap: true });
+    setup(s, c("red", "3"), [c("red", "7"), c("green", "8")]);
+    const r = playCard(s, "p1", s.players[0].hand[0].uid);
+    expect(r.ok).toBe(true);
+    expect(s.pendingSevenSwap?.playerId).toBe("p1");
+    expect(s.currentSeat).toBe(0);
+  });
+
+  it("does nothing special when sevenSwap is off", () => {
+    const s = room({ sevenSwap: false });
+    setup(s, c("red", "3"), [c("red", "7"), c("green", "8")]);
+    playCard(s, "p1", s.players[0].hand[0].uid);
+    expect(s.pendingSevenSwap).toBeNull();
+    expect(s.currentSeat).toBe(1);
+  });
+
+  it("swaps hands and advances turn on target choice", () => {
+    const s = room({ sevenSwap: true });
+    const myHand = [c("red", "7"), c("blue", "4")];
+    const theirHand = [c("green", "9"), c("green", "2"), c("yellow", "5")];
+    setup(s, c("red", "3"), myHand);
+    s.players[1].hand = theirHand;
+    playCard(s, "p1", myHand[0].uid);
+
+    const r = chooseSevenSwapTarget(s, "p1", 1);
+    expect(r.ok).toBe(true);
+    expect(s.players[0].hand.length).toBe(3);
+    expect(s.players[1].hand.length).toBe(1);
+    expect(s.pendingSevenSwap).toBeNull();
+    expect(s.currentSeat).toBe(1);
+  });
+
+  it("rejects swap with self", () => {
+    const s = room({ sevenSwap: true });
+    setup(s, c("red", "3"), [c("red", "7")]);
+    playCard(s, "p1", s.players[0].hand[0].uid);
+    const r = chooseSevenSwapTarget(s, "p1", 0);
+    expect(r.ok).toBe(false);
+  });
+
+  it("blocks draw while a swap is pending", () => {
+    const s = room({ sevenSwap: true });
+    setup(s, c("red", "3"), [c("red", "7"), c("blue", "4")]);
+    playCard(s, "p1", s.players[0].hand[0].uid);
+    const r = drawCard(s, "p1");
+    expect(r.ok).toBe(false);
+  });
+
+  it("does NOT trigger swap when multiple 7s are stacked", () => {
+    const s = room({ sevenSwap: true, stacking: true });
+    const hand = [c("red", "7"), c("blue", "7"), c("green", "8")];
+    setup(s, c("red", "3"), hand);
+    const r = playCards(s, "p1", [hand[0].uid, hand[1].uid]);
+    expect(r.ok).toBe(true);
+    expect(s.pendingSevenSwap).toBeNull();
+    expect(s.currentSeat).toBe(1);
+  });
+});
+
+describe("0-rotate rule", () => {
+  it("rotates hands when zeroRotate is on and direction is +1", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG, zeroRotate: true });
+    addPlayer(s, "p1", "A");
+    addPlayer(s, "p2", "B");
+    addPlayer(s, "p3", "C");
+    s.phase = "in_round";
+    s.discardPile = [c("red", "3")];
+    s.activeColor = "red";
+    s.direction = 1;
+    s.currentSeat = 0;
+    s.drawPile = buildDeck();
+    const zero = c("red", "0");
+    const keeper = c("blue", "2");
+    s.players[0].hand = [zero, keeper];
+    s.players[1].hand = [c("blue", "9")];
+    s.players[2].hand = [c("green", "4"), c("green", "5")];
+
+    const r = playCard(s, "p1", zero.uid);
+    expect(r.ok).toBe(true);
+    // direction=+1: seat i receives the hand previously at seat (i-1 mod n).
+    //   seat 0 ← seat 2's hand (2 cards)
+    //   seat 1 ← seat 0's remaining hand ([keeper], 1 card)
+    //   seat 2 ← seat 1's hand (1 card)
+    expect(s.players[0].hand.length).toBe(2);
+    expect(s.players[1].hand.length).toBe(1);
+    expect(s.players[2].hand.length).toBe(1);
+    expect(s.players[1].hand[0].uid).toBe(keeper.uid);
+  });
+
+  it("does nothing when zeroRotate is off", () => {
+    const s = room({ zeroRotate: false });
+    setup(s, c("red", "3"), [c("red", "0"), c("blue", "4")]);
+    const otherBefore = s.players[1].hand.slice();
+    playCard(s, "p1", s.players[0].hand[0].uid);
+    expect(s.players[1].hand).toEqual(otherBefore);
+  });
+});
+
+describe("presets", () => {
+  it("CLASSIC leaves variant flags off", () => {
+    expect(CLASSIC.stacking).toBe(false);
+    expect(CLASSIC.sevenSwap).toBe(false);
+    expect(CLASSIC.zeroRotate).toBe(false);
+    expect(CLASSIC.flipMode).toBe(false);
+  });
+
+  it("NO_MERCY turns on the aggressive bundle", () => {
+    expect(NO_MERCY.stacking).toBe(true);
+    expect(NO_MERCY.stackDraw2OnDraw2).toBe(true);
+    expect(NO_MERCY.stackDraw4OnDraw2Or4).toBe(true);
+    expect(NO_MERCY.drawPenaltyBehavior).toBe("drawUntilPlayable");
+    expect(NO_MERCY.forcePlay).toBe(true);
+    expect(NO_MERCY.sevenSwap).toBe(true);
+    expect(NO_MERCY.zeroRotate).toBe(true);
+    expect(NO_MERCY.dealSize).toBe(10);
+  });
+
+  it("FLIP sets flipMode", () => {
+    expect(FLIP.flipMode).toBe(true);
+  });
+});
+
+describe("Flip deck + rules", () => {
+  it("buildFlipDeck attaches a darkSide to every card and includes flip cards", () => {
+    const deck = buildFlipDeck();
+    expect(deck.length).toBeGreaterThan(108);
+    expect(deck.every((c) => !!c.darkSide)).toBe(true);
+    expect(deck.filter((c) => c.value === "flip").length).toBe(8);
+  });
+
+  it("playing a flip card toggles state.flipSide", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG, flipMode: true });
+    addPlayer(s, "p1", "A");
+    addPlayer(s, "p2", "B");
+    s.phase = "in_round";
+    s.discardPile = [c("red", "3")];
+    s.activeColor = "red";
+    s.direction = 1;
+    s.currentSeat = 0;
+    s.drawPile = buildDeck();
+    const flipCard: Card = { uid: "flip1", color: "red", value: "flip" };
+    s.players[0].hand = [flipCard, c("blue", "4")];
+    expect(s.flipSide).toBe("light");
+    const r = playCard(s, "p1", flipCard.uid);
+    expect(r.ok).toBe(true);
+    expect(s.flipSide).toBe("dark");
+    // Advances one seat as normal.
+    expect(s.currentSeat).toBe(1);
+  });
+
+  it("skip_all advances the turn all the way back to the player", () => {
+    const s = createRoom("TEST", { ...DEFAULT_CONFIG, flipMode: true });
+    addPlayer(s, "p1", "A");
+    addPlayer(s, "p2", "B");
+    addPlayer(s, "p3", "C");
+    s.phase = "in_round";
+    s.flipSide = "dark"; // simulate mid-round flip state
+    s.discardPile = [c("red", "3")];
+    s.activeColor = "red";
+    s.direction = 1;
+    s.currentSeat = 0;
+    s.drawPile = buildDeck();
+    const skipAll: Card = {
+      uid: "sa1",
+      color: "red",
+      value: "skip_all",
+    };
+    s.players[0].hand = [skipAll, c("blue", "4")];
+    const r = playCard(s, "p1", skipAll.uid);
+    expect(r.ok).toBe(true);
+    expect(s.currentSeat).toBe(0); // back to the player who played it
+  });
+
+  it("presetConfig falls back to CLASSIC for unknown/custom", () => {
+    expect(presetConfig("custom").preset).toBe("classic");
+    expect(presetConfig(undefined).preset).toBe("classic");
   });
 });

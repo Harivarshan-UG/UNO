@@ -44,12 +44,35 @@ const DROP = 16;
 
 type Orientation = "top" | "left" | "right";
 
-/** Where each opponent sits, by index in turn order (mirrors GameTable). */
+/**
+ * How many opponents sit on each edge for a given opponent count. Portrait
+ * phones have very little horizontal room, so sides stay thin (1 for small
+ * tables, 2 for crowded ones) and everything else flows across the top.
+ *
+ *   opps  ->  left  top  right
+ *    1    ->   0     1     0
+ *    2    ->   1     0     1
+ *    3    ->   1     1     1
+ *   4..5  ->   1    n-2    1
+ *   6..9  ->   2    n-4    2
+ *
+ * Opponents are assigned in turn order: the first opponent (next player after
+ * the local seat, going in the play direction) takes the first left slot, then
+ * the top slots left-to-right, then the right slots.
+ */
+function sideCounts(n: number): { left: number; top: number; right: number } {
+  if (n <= 0) return { left: 0, top: 0, right: 0 };
+  if (n === 1) return { left: 0, top: 1, right: 0 };
+  if (n === 2) return { left: 1, top: 0, right: 1 };
+  if (n <= 5) return { left: 1, top: n - 2, right: 1 };
+  return { left: 2, top: Math.max(0, n - 4), right: 2 };
+}
+
 function orientationFor(i: number, n: number): Orientation {
-  if (n <= 1) return "top";
-  if (i === 0) return "left";
-  if (i === n - 1) return "right";
-  return "top";
+  const { left, top } = sideCounts(n);
+  if (i < left) return "left";
+  if (i < left + top) return "top";
+  return "right";
 }
 
 export function MobileGameTable({
@@ -325,6 +348,9 @@ export function MobileGameTable({
     send({ type: "catchMissedUno", targetPlayerId });
   };
 
+  // Crowded top row (2+ seats across) collapses each top seat to a compact
+  // pill so a 5-across row still fits on a 360px phone.
+  const compactTop = seats.top.length > 1;
   const renderSeat = (p: (typeof opponents)[number], o: Orientation) => (
     <MobileSeat
       key={p.playerId}
@@ -333,14 +359,24 @@ export function MobileGameTable({
       isCurrent={view.currentSeat === p.seat}
       turnEndsAt={view.currentSeat === p.seat ? view.turnEndsAt : null}
       onCatch={() => sendCatch(p.playerId)}
+      compact={o === "top" && compactTop}
     />
   );
 
   return (
     <main className="fixed inset-0 overflow-hidden select-none font-body overscroll-none">
-      {/* Top opponent + a pointer toward the center star. */}
+      {/* Top opponents. With one opponent it's the classic centred seat with a
+          pointer toward the star. With several, the row flows horizontally and
+          each seat shrinks (via the `topCount` prop on MobileSeat) so a
+          10-player table still fits on a phone — crowded, but legible. */}
       {seats.top.length > 0 && (
-        <div className="absolute top-[1.5vh] left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
+        <div
+          className={
+            seats.top.length === 1
+              ? "absolute top-[1.5vh] left-1/2 -translate-x-1/2 flex flex-col items-center gap-1"
+              : "absolute top-[1.2vh] left-[4vw] right-[4vw] flex flex-row justify-center items-start flex-wrap gap-x-2 gap-y-1"
+          }
+        >
           {seats.top.map((p) => renderSeat(p, "top"))}
         </div>
       )}
@@ -788,16 +824,30 @@ function MobileSeat({
   orientation,
   turnEndsAt,
   onCatch,
+  compact = false,
 }: {
   player: PlayerView;
   isCurrent: boolean;
   orientation: Orientation;
   turnEndsAt?: number | null;
   onCatch?: () => void;
+  /** Collapsed top-row rendering for crowded tables (5+ opponents on top). */
+  compact?: boolean;
 }) {
   const count = player.handCount;
   const backs = Math.min(Math.max(count, 1), 7);
-  const size = 42;
+  const size = compact ? 34 : 42;
+
+  if (compact && orientation === "top") {
+    return (
+      <CompactTopSeat
+        player={player}
+        isCurrent={isCurrent}
+        turnEndsAt={turnEndsAt}
+        onCatch={onCatch}
+      />
+    );
+  }
 
   const avatar = (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
@@ -1163,6 +1213,76 @@ function MobileHand({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------- Compact top seat
+   For crowded tables (5+ opponents on top) each seat shrinks to this compact
+   pill: avatar + count badge + a short name underneath. No back-fan. Keeps a
+   10-player table legible on a 360px phone, trading per-seat detail for
+   everyone being visible at once. */
+function CompactTopSeat({
+  player,
+  isCurrent,
+  turnEndsAt,
+  onCatch,
+}: {
+  player: PlayerView;
+  isCurrent: boolean;
+  turnEndsAt?: number | null;
+  onCatch?: () => void;
+}) {
+  const size = 36;
+  const backing = isCurrent
+    ? "bg-uno-cream/60 ring-2 ring-uno-ink/15 shadow-[0_4px_10px_rgba(43,42,39,0.18)]"
+    : "bg-uno-cream/25";
+  return (
+    <div
+      className={`relative flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-[14px] ${backing}`}
+      style={{ minWidth: 48 }}
+    >
+      <div className="relative" style={{ width: size, height: size }}>
+        <div
+          style={{ width: size, height: size }}
+          className={`rounded-[10px] overflow-hidden card-shadow ${isCurrent ? "turn-glow" : ""}`}
+        >
+          <Img
+            src={avatarFor(player.seat)}
+            alt=""
+            width={size}
+            height={size}
+            rounded={false}
+            unoptimized
+            draggable={false}
+            style={{ width: "100%", height: "100%" }}
+            className="object-cover pointer-events-none rounded-[10px]"
+          />
+        </div>
+        {isCurrent && <CountdownRing deadline={turnEndsAt ?? null} size={size} radius={10} />}
+        {/* Hand-count badge, bottom-right. */}
+        <span className="absolute -bottom-1 -right-1 grid place-items-center min-w-[18px] h-[18px] px-1 rounded-[7px] bg-uno-cream text-uno-ink text-[10px] font-extrabold border-2 border-uno-ink/12 shadow-[0_2px_4px_rgba(43,42,39,0.3)]">
+          {player.handCount}
+        </span>
+        {!player.connected && (
+          <span
+            className="absolute -top-1 -left-1 w-3 h-3 bg-uno-cream rounded-full border border-uno-ink/15"
+            title="disconnected"
+          />
+        )}
+      </div>
+      <span
+        className={`max-w-[56px] truncate text-[9px] font-extrabold leading-none ${
+          isCurrent ? "text-uno-ink" : "text-uno-ink1"
+        } ${player.connected ? "" : "line-through opacity-70"}`}
+      >
+        {player.displayName}
+      </span>
+      {player.isCatchable && onCatch && (
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-10">
+          <CatchPill onCatch={onCatch} compact />
+        </div>
+      )}
     </div>
   );
 }

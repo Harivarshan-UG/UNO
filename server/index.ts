@@ -15,8 +15,10 @@ import {
   autoPass,
   callUno,
   catchMissedUno,
+  chooseSevenSwapTarget,
   createRoom,
   drawCard,
+  postChat,
   getClientView,
   passAfterDraw,
   playCard,
@@ -225,6 +227,12 @@ function handle(room: Room, ws: WebSocket, msg: ClientMessage) {
       break;
     case "catchMissedUno":
       r = catchMissedUno(state, playerId, msg.targetPlayerId);
+      break;
+    case "chooseSevenSwapTarget":
+      r = chooseSevenSwapTarget(state, playerId, msg.targetSeat);
+      break;
+    case "chat":
+      r = postChat(state, playerId, msg.text);
       break;
     case "startNextRound":
       if (!isHost) return reject(ws, "Host only");

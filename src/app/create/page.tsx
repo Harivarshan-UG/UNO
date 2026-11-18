@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_CONFIG, RuleConfig } from "../../engine/types";
+import { DEFAULT_CONFIG, RuleConfig, RulesetPreset } from "../../engine/types";
+import { presetConfig } from "../../engine/presets";
 import {
   loadDraftConfig,
   randomRoomCode,
@@ -33,8 +34,18 @@ export default function CreatePage() {
     saveDraftConfig(config);
   }, [config]);
 
+  // Setting any individual flag means the active bundle is no longer any named
+  // preset — flip the tag to "custom" so the UI shows that clearly.
   const set = <K extends keyof RuleConfig>(k: K, v: RuleConfig[K]) =>
-    setConfig((c) => ({ ...c, [k]: v }));
+    setConfig((c) => ({ ...c, [k]: v, preset: "custom" as RulesetPreset }));
+
+  const applyPreset = (name: RulesetPreset) => {
+    if (name === "custom") {
+      setConfig((c) => ({ ...c, preset: "custom" }));
+      return;
+    }
+    setConfig(presetConfig(name));
+  };
 
   const createSfx = usePlaySound({ sound: "interaction.confirm" });
   const backSfx = usePlaySound({ sound: "interaction.tap" });
@@ -53,7 +64,10 @@ export default function CreatePage() {
       <div className="w-full max-w-2xl">
         <h1 className="font-display text-4xl sm:text-5xl mb-2">Create Room</h1>
 
-        <h2 className="text-lg font-bold mb-4">House Rules</h2>
+        <h2 className="text-lg font-bold mb-3">Ruleset</h2>
+        <PresetRow value={config.preset} onChange={applyPreset} />
+
+        <h2 className="text-lg font-bold mt-7 mb-4">House Rules</h2>
 
         {/* Desktop-first: settings laid out as a two-column card grid. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -114,12 +128,33 @@ export default function CreatePage() {
           />
 
           <NumberCard
+            label="Max players"
+            hint="Seats the room accepts (2–10)"
+            value={config.maxPlayers}
+            min={2}
+            max={10}
+            onChange={(v) => set("maxPlayers", v)}
+          />
+          <NumberCard
             label="Deal size"
             hint="Cards dealt to each player"
             value={config.dealSize}
             min={3}
             max={10}
             onChange={(v) => set("dealSize", v)}
+          />
+
+          <ToggleCard
+            label="7-swap"
+            hint="Playing a 7 lets you swap hands with any player"
+            value={config.sevenSwap}
+            onChange={(v) => set("sevenSwap", v)}
+          />
+          <ToggleCard
+            label="0-rotate"
+            hint="Playing a 0 rotates every hand in the direction of play"
+            value={config.zeroRotate}
+            onChange={(v) => set("zeroRotate", v)}
           />
           <SelectCard
             label="Scoring"
@@ -167,6 +202,67 @@ export default function CreatePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/* ---------------------------------------------------------------- Preset row */
+
+const PRESET_META: Record<RulesetPreset, { label: string; blurb: string }> = {
+  classic: {
+    label: "Classic",
+    blurb: "Standard UNO. No stacking, no 7-0, straightforward.",
+  },
+  no_mercy: {
+    label: "No Mercy",
+    blurb: "Stacking, +2/+4 chain, 7-swap, 0-rotate, 10-card deal. Chaos.",
+  },
+  flip: {
+    label: "Flip",
+    blurb: "Dual-sided cards — a flip card swaps the whole deck. WIP visuals.",
+  },
+  custom: {
+    label: "Custom",
+    blurb: "Hand-pick every rule below.",
+  },
+};
+
+function PresetRow({
+  value,
+  onChange,
+}: {
+  value: RulesetPreset;
+  onChange: (p: RulesetPreset) => void;
+}) {
+  const tapSfx = usePlaySound({ sound: "interaction.confirm" });
+  const options: RulesetPreset[] = ["classic", "no_mercy", "flip", "custom"];
+  const active = PRESET_META[value] ?? PRESET_META.custom;
+  return (
+    <div className="mb-1">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {options.map((p) => {
+          const selected = value === p;
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                tapSfx.play();
+                onChange(p);
+              }}
+              aria-pressed={selected}
+              className={`px-3 py-3 rounded-card border-2 font-extrabold uppercase tracking-wide text-sm transition ${
+                selected
+                  ? "bg-uno-red text-uno-cream border-uno-ink/20 shadow-[0_4px_0_rgba(43,42,39,0.22)]"
+                  : "bg-uno-white1 text-uno-ink border-uno-ink/10 hover:border-uno-ink/30"
+              }`}
+            >
+              {PRESET_META[p].label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-uno-ink2 mt-2 leading-snug">{active.blurb}</p>
+    </div>
   );
 }
 

@@ -1,6 +1,12 @@
 import { nanoid } from "nanoid";
-import { buildDeck, cardPoints, shuffle } from "./deck";
-import { canPlay, canStackRank, isPlayableNormally, isWild } from "./rules";
+import { buildDeck, buildFlipDeck, cardPoints, shuffle } from "./deck";
+import {
+  canPlay,
+  canStackRank,
+  faceOf,
+  isPlayableNormally,
+  isWild,
+} from "./rules";
 import {
   ActionLogEntry,
   Card,
@@ -34,13 +40,41 @@ export function createRoom(roomCode: string, config: RuleConfig): RoomState {
     currentSeat: 0,
     pendingDraw: 0,
     pendingPass: null,
+    pendingSevenSwap: null,
+    flipSide: "light",
     turnDeadline: null,
     unoVulnerableSeat: null,
     scores: {},
     roundWinnerId: null,
     matchWinnerId: null,
     lastActionLog: [],
+    chatLog: [],
   };
+}
+
+/**
+ * Post a chat message from a seated player. Trims whitespace, enforces a
+ * length cap, and keeps only the most recent 100 messages on the room state
+ * so a long-running room doesn't grow unbounded.
+ */
+export function postChat(
+  state: RoomState,
+  playerId: string,
+  text: string,
+): Result {
+  const player = state.players.find((p) => p.playerId === playerId);
+  if (!player) return fail("Not in this room");
+  const clean = text.trim().slice(0, 200);
+  if (!clean) return fail("Empty message");
+  const entry = {
+    id: nanoid(8),
+    playerId,
+    name: player.displayName,
+    text: clean,
+    at: Date.now(),
+  };
+  state.chatLog = [...state.chatLog.slice(-99), entry];
+  return ok;
 }
 
 export function addPlayer(
@@ -49,7 +83,8 @@ export function addPlayer(
   displayName: string,
 ): Result {
   if (state.phase !== "lobby") return fail("Game already started");
-  if (state.players.length >= 4) return fail("Room is full");
+  const cap = Math.min(Math.max(state.config.maxPlayers ?? 10, 2), 10);
+  if (state.players.length >= cap) return fail("Room is full");
   if (state.players.some((p) => p.playerId === playerId)) return ok;
 
   const seat = state.players.length;
@@ -98,7 +133,9 @@ export function setConnected(state: RoomState, playerId: string, connected: bool
 export function startRound(state: RoomState): Result {
   if (state.players.length < 2) return fail("Need at least 2 players");
 
-  const deck = shuffle(buildDeck());
+  const deck = shuffle(
+    state.config.flipMode ? buildFlipDeck() : buildDeck(),
+  );
   state.players.forEach((p) => {
     p.hand = [];
     p.hasCalledUno = false;
@@ -111,10 +148,11 @@ export function startRound(state: RoomState): Result {
     }
   }
 
-  // Flip first non-wild card as the initial discard.
+  // Flip first non-wild, non-flip card as the initial discard — a flip opener
+  // would toggle the whole table before anyone acts, which no one expects.
   let first = deck.pop();
-  while (first && isWild(first.value)) {
-    deck.unshift(first); // bury the wild
+  while (first && (isWild(first.value) || first.value === "flip")) {
+    deck.unshift(first);
     first = deck.pop();
   }
   if (!first) return fail("Deck error");
@@ -126,6 +164,8 @@ export function startRound(state: RoomState): Result {
   state.currentSeat = 0;
   state.pendingDraw = 0;
   state.pendingPass = null;
+  state.pendingSevenSwap = null;
+  state.flipSide = "light";
   state.unoVulnerableSeat = null;
   state.roundWinnerId = null;
   state.matchWinnerId = null;
@@ -277,6 +317,7 @@ export function playCards(
     discardTop: discardTop(state),
     pendingDraw: state.pendingDraw,
     config: state.config,
+    flipSide: state.flipSide,
   };
   const openerIdx = cards.findIndex((c) => canPlay(c, opts));
   if (openerIdx === -1) return fail("Card is not playable");
@@ -285,10 +326,15 @@ export function playCards(
   const opener = cards[openerIdx];
   const ordered = [opener, ...cards.filter((_, i) => i !== openerIdx)];
   const finalCard = ordered[ordered.length - 1];
-  const value = opener.value; // all played cards share this rank
+  // In Flip mode we care about the FACE values, not the raw card values; a
+  // player's hand stores light-side cards but the dark-side value is what
+  // currently matters. `value` is the shared rank of the stack, as faced.
+  const openerFace = faceOf(opener, state.flipSide);
+  const finalFace = faceOf(finalCard, state.flipSide);
+  const value = openerFace.value;
   const count = ordered.length;
 
-  if (isWild(finalCard.value) && !chosenColor) {
+  if (isWild(finalFace.value) && !chosenColor) {
     return fail("Choose a color for the wild");
   }
 
@@ -298,12 +344,12 @@ export function playCards(
   // Move every played card to the discard, in order.
   player.hand = player.hand.filter((c) => !uidSet.has(c.uid));
   for (const c of ordered) state.discardPile.push(c);
-  state.activeColor = isWild(finalCard.value) ? chosenColor! : finalCard.color;
+  state.activeColor = isWild(finalFace.value) ? chosenColor! : finalFace.color;
 
   if (count > 1) {
     log(state, `${player.displayName} played ${count}× ${rankLabel(value)}`, player.seat);
   } else {
-    log(state, `${player.displayName} played ${describeCard(finalCard, state.activeColor)}`, player.seat);
+    log(state, `${player.displayName} played ${describeCard(finalFace, state.activeColor)}`, player.seat);
   }
 
   // Win check.
@@ -328,6 +374,11 @@ export function playCards(
       log(state, count > 1 ? `${count} players skipped` : "Next player skipped", null);
       advance(state, 1 + count);
       break;
+    case "skip_all":
+      // Dark-side "skip everyone": the turn comes back around to you.
+      log(state, "Everyone else skipped!", null);
+      advance(state, n);
+      break;
     case "reverse":
       if (count % 2 === 1) state.direction = state.direction === 1 ? -1 : 1;
       // An odd number of reverses acts as a skip in a 2-player game.
@@ -338,8 +389,43 @@ export function playCards(
       state.pendingDraw += 2 * count;
       advance(state, 1);
       break;
+    case "draw5":
+      state.pendingDraw += 5 * count;
+      advance(state, 1);
+      break;
     case "wild_draw4":
       state.pendingDraw += 4 * count;
+      advance(state, 1);
+      break;
+    case "flip":
+      // Toggle the global side, then re-interpret the active color through
+      // the new face of the card we just played.
+      state.flipSide = state.flipSide === "light" ? "dark" : "light";
+      log(state, `Flipped to ${state.flipSide} side!`, null);
+      const newFinalFace = faceOf(finalCard, state.flipSide);
+      state.activeColor = isWild(newFinalFace.value)
+        ? chosenColor ?? state.activeColor
+        : newFinalFace.color;
+      advance(state, 1);
+      break;
+    case "0":
+      if (state.config.zeroRotate) {
+        rotateAllHands(state);
+        log(state, "Hands rotated!", null);
+      }
+      advance(state, 1);
+      break;
+    case "7":
+      // A single 7 under sevenSwap triggers a choose-target prompt. A stacked
+      // play of multiple 7s is treated as a plain play — the UX of "pick N
+      // targets" is complex and players generally expect the stack to just
+      // clear cards.
+      if (state.config.sevenSwap && count === 1) {
+        state.pendingSevenSwap = { playerId: player.playerId };
+        log(state, `${player.displayName} plays 7 — pick a seat to swap`, player.seat);
+        // Intentionally do NOT advance — player must still act.
+        return ok;
+      }
       advance(state, 1);
       break;
     default:
@@ -349,10 +435,61 @@ export function playCards(
   return ok;
 }
 
+/**
+ * Resolve a pending seven-swap: swap the active player's hand with the chosen
+ * target seat, then advance the turn. Illegal if no swap is pending, if the
+ * caller isn't the pending player, or if the target seat doesn't exist.
+ */
+export function chooseSevenSwapTarget(
+  state: RoomState,
+  playerId: string,
+  targetSeat: number,
+): Result {
+  if (state.phase !== "in_round") return fail("Not in a round");
+  if (!state.pendingSevenSwap || state.pendingSevenSwap.playerId !== playerId) {
+    return fail("No pending swap");
+  }
+  const me = state.players.find((p) => p.playerId === playerId);
+  const target = state.players.find((p) => p.seat === targetSeat);
+  if (!me || !target) return fail("Unknown seat");
+  if (target.playerId === playerId) return fail("Cannot swap with yourself");
+
+  const tmp = me.hand;
+  me.hand = target.hand;
+  target.hand = tmp;
+  // Swapping defeats a prior UNO call on either side.
+  me.hasCalledUno = false;
+  target.hasCalledUno = false;
+  state.unoVulnerableSeat = null;
+
+  log(state, `${me.displayName} swapped hands with ${target.displayName}`, me.seat);
+  state.pendingSevenSwap = null;
+  advance(state, 1);
+  return ok;
+}
+
+/** 0-rotate: every hand moves one seat in the current direction of play. */
+function rotateAllHands(state: RoomState): void {
+  const n = state.players.length;
+  if (n < 2) return;
+  const bySeat = [...state.players].sort((a, b) => a.seat - b.seat);
+  const hands = bySeat.map((p) => p.hand);
+  const unos = bySeat.map((p) => p.hasCalledUno);
+  for (let i = 0; i < n; i++) {
+    const srcIdx = mod(i - state.direction, n);
+    bySeat[i].hand = hands[srcIdx];
+    bySeat[i].hasCalledUno = unos[srcIdx];
+  }
+  state.unoVulnerableSeat = null;
+}
+
 export function drawCard(state: RoomState, playerId: string): Result {
   if (state.phase !== "in_round") return fail("Not in a round");
   const player = currentPlayer(state);
   if (!player || player.playerId !== playerId) return fail("Not your turn");
+  if (state.pendingSevenSwap && state.pendingSevenSwap.playerId === playerId) {
+    return fail("Pick a seat to swap with first");
+  }
   if (state.pendingPass && state.pendingPass.playerId === playerId) {
     return fail("You already drew — play or pass");
   }
@@ -376,7 +513,7 @@ export function drawCard(state: RoomState, playerId: string): Result {
       if (!c) break;
       player.hand.push(c);
       drawn.push(c);
-      if (isPlayableNormally(c, state.activeColor, discardTop(state))) break;
+      if (isPlayableNormally(c, state.activeColor, discardTop(state), state.flipSide)) break;
     }
     if (player.hand.length > 1) player.hasCalledUno = false;
   } else {
@@ -386,7 +523,7 @@ export function drawCard(state: RoomState, playerId: string): Result {
   log(state, `${player.displayName} drew ${drawn.length}`, player.seat);
 
   const drawnPlayable = drawn.some((c) =>
-    isPlayableNormally(c, state.activeColor, discardTop(state)),
+    isPlayableNormally(c, state.activeColor, discardTop(state), state.flipSide),
   );
   const mustPlay = state.config.forcePlay && drawnPlayable;
   state.pendingPass = {
@@ -453,6 +590,18 @@ export function autoPass(state: RoomState, playerId: string): Result {
   const player = currentPlayer(state);
   if (!player || player.playerId !== playerId) return fail("Not their turn");
 
+  // Owes a seven-swap pick: pick a random opponent and resolve.
+  if (state.pendingSevenSwap && state.pendingSevenSwap.playerId === playerId) {
+    const others = state.players.filter((p) => p.playerId !== playerId);
+    if (others.length === 0) {
+      state.pendingSevenSwap = null;
+      advance(state, 1);
+      return ok;
+    }
+    const target = others[Math.floor(Math.random() * others.length)];
+    return chooseSevenSwapTarget(state, playerId, target.seat);
+  }
+
   // Already drew this turn: pass if allowed, else (forcePlay) auto-play the card.
   if (state.pendingPass && state.pendingPass.playerId === playerId) {
     if (!state.pendingPass.mustPlay) return passAfterDraw(state, playerId);
@@ -477,6 +626,7 @@ function autoPlayForced(state: RoomState, player: Player): Result {
     discardTop: discardTop(state),
     pendingDraw: state.pendingDraw,
     config: state.config,
+    flipSide: state.flipSide,
   };
   const uid = drawnUids.find((u) => {
     const c = player.hand.find((x) => x.uid === u);
@@ -489,7 +639,8 @@ function autoPlayForced(state: RoomState, player: Player): Result {
     return ok;
   }
   const card = player.hand.find((x) => x.uid === uid)!;
-  const color = isWild(card.value) ? autoColorFor(player) : undefined;
+  const face = faceOf(card, state.flipSide);
+  const color = isWild(face.value) ? autoColorFor(player) : undefined;
   return playCards(state, player.playerId, [uid], color);
 }
 
@@ -550,8 +701,11 @@ function describeCard(card: Card, activeColor: Color | null): string {
   if (card.value === "wild_draw4") return `Wild +4 (${activeColor})`;
   const label: Record<string, string> = {
     skip: "Skip",
+    skip_all: "Skip-All",
     reverse: "Reverse",
     draw2: "+2",
+    draw5: "+5",
+    flip: "Flip",
   };
   return `${card.color} ${label[card.value] ?? card.value}`;
 }
@@ -560,8 +714,11 @@ function describeCard(card: Card, activeColor: Color | null): string {
 function rankLabel(value: Card["value"]): string {
   const label: Record<string, string> = {
     skip: "Skip",
+    skip_all: "Skip-All",
     reverse: "Reverse",
     draw2: "+2",
+    draw5: "+5",
+    flip: "Flip",
     wild: "Wild",
     wild_draw4: "Wild +4",
   };
@@ -602,11 +759,17 @@ export function getClientView(state: RoomState, playerId: string): ClientView {
       state.pendingPass && state.pendingPass.playerId === playerId
         ? state.pendingPass
         : null,
+    pendingSevenSwap:
+      state.pendingSevenSwap && state.pendingSevenSwap.playerId === playerId
+        ? state.pendingSevenSwap
+        : null,
+    flipSide: state.flipSide,
     turnEndsAt: state.phase === "in_round" ? state.turnDeadline : null,
     scores: state.scores,
     roundWinnerId: state.roundWinnerId,
     matchWinnerId: state.matchWinnerId,
     lastActionLog: state.lastActionLog,
+    chatLog: state.chatLog,
   };
 }
 

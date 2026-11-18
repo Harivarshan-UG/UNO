@@ -36,6 +36,8 @@ export interface SensoryUIContextValue {
   muted: boolean;
   /** Toggle the mute state programmatically. */
   setMuted: (muted: boolean) => void;
+  /** Set the effective master volume (0..1), clamped. Persists to localStorage. */
+  setVolume: (volume: number) => void;
   /**
    * Whether the sound engine is currently suppressing audio due to
    * motion-reduction settings. This is `true` in two cases:
@@ -124,7 +126,37 @@ export function SensoryUIProvider({
     [JSON.stringify(configOverride)]
   );
 
-  const [muted, setMuted] = React.useState(false);
+  // Audio preferences are per-browser, not per-room — stash in localStorage so
+  // they survive reloads (and so "I turned the music off" actually sticks).
+  const [muted, setMutedState] = React.useState(false);
+  const [volumeOverride, setVolumeOverride] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    try {
+      const m = localStorage.getItem("sfx.muted");
+      if (m !== null) setMutedState(m === "1");
+      const v = localStorage.getItem("sfx.volume");
+      if (v !== null) {
+        const n = Number(v);
+        if (Number.isFinite(n)) setVolumeOverride(Math.max(0, Math.min(1, n)));
+      }
+    } catch {
+      /* private mode, denied storage — fall back to defaults silently. */
+    }
+  }, []);
+  const setMuted = React.useCallback((next: boolean) => {
+    setMutedState(next);
+    try {
+      localStorage.setItem("sfx.muted", next ? "1" : "0");
+    } catch {}
+  }, []);
+  const setVolume = React.useCallback((next: number) => {
+    const v = Math.max(0, Math.min(1, next));
+    setVolumeOverride(v);
+    try {
+      localStorage.setItem("sfx.volume", String(v));
+    } catch {}
+  }, []);
+  const effectiveVolume = volumeOverride ?? config.volume;
   const reducedMotion = useReducedMotion(config.reducedMotion);
   const shouldPlay = config.enabled && !muted && !reducedMotion;
 
@@ -136,7 +168,7 @@ export function SensoryUIProvider({
       if (typeof window === "undefined") return null;
       if (!shouldPlay) return null;
 
-      const finalVolume = (options.volume ?? 1) * config.volume;
+      const finalVolume = (options.volume ?? 1) * effectiveVolume;
 
       // Detect raw URLs / data-URIs passed via usePlaySound and bypass
       // role resolution — send them straight to the engine.
@@ -159,7 +191,7 @@ export function SensoryUIProvider({
         return null;
       }
     },
-    [shouldPlay, config]
+    [shouldPlay, config, effectiveVolume]
   );
 
   // Clean up the AudioContext on unmount in development to avoid stale state
@@ -175,12 +207,13 @@ export function SensoryUIProvider({
     () => ({
       playSound,
       enabled: shouldPlay,
-      volume: config.volume,
+      volume: effectiveVolume,
       muted,
       setMuted,
+      setVolume,
       reducedMotion,
     }),
-    [playSound, shouldPlay, config.volume, muted, reducedMotion]
+    [playSound, shouldPlay, effectiveVolume, muted, reducedMotion, setMuted, setVolume]
   );
 
   return (
